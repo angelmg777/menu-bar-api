@@ -3,6 +3,8 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const Bebida = require('./models/bebida')
 require('dotenv').config()
+const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -22,6 +24,24 @@ mongoose.connect(process.env.MONGODB_URI)
 app.get('/', (req, res) => {
   res.json({ mensaje: 'Bienvenido a la API de Ruso Bar 🍹' })
 })
+
+
+const verificarToken = (req, res, next) => {
+  const authHeader = req.headers['authorization']
+  const token = authHeader && authHeader.split(' ')[1]
+
+  if (!token) {
+    return res.status(401).json({ mensaje: 'Token requerido' })
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    req.usuario = decoded
+    next()
+  } catch (error) {
+    res.status(403).json({ mensaje: 'Token inválido o expirado' })
+  }
+}
 
 app.get('/bebidas', async (req, res) => {
   try {
@@ -44,7 +64,7 @@ app.get('/bebidas/:id', async (req, res) => {
   }
 })
 
-app.post('/bebidas', async (req, res) => {
+app.post('/bebidas', verificarToken, async (req, res) => {
   try {
     const nuevaBebida = new Bebida(req.body)
     await nuevaBebida.save()
@@ -54,7 +74,7 @@ app.post('/bebidas', async (req, res) => {
   }
 })
 
-app.put('/bebidas/:id', async (req, res) => {
+app.put('/bebidas/:id', verificarToken ,async (req, res) => {
   try {
     const bebida = await Bebida.findByIdAndUpdate(
       req.params.id,
@@ -70,7 +90,7 @@ app.put('/bebidas/:id', async (req, res) => {
   }
 })
 
-app.delete('/bebidas/:id', async (req, res) => {
+app.delete('/bebidas/:id', verificarToken, async (req, res) => {
   try {
     const bebida = await Bebida.findByIdAndDelete(req.params.id)
     if (!bebida) {
@@ -82,6 +102,32 @@ app.delete('/bebidas/:id', async (req, res) => {
   }
 })
 
+app.post('/auth/login', async (req, res) => {
+  const { usuario, password } = req.body
+
+  if (usuario !== 'admin') {
+    return res.status(401).json({ mensaje: 'Credenciales incorrectas' })
+  }
+
+  const passwordCorrecta = await bcrypt.compare(
+    password,
+    await bcrypt.hash(process.env.ADMIN_PASSWORD, 10)
+  )
+
+  if (!passwordCorrecta) {
+    return res.status(401).json({ mensaje: 'Credenciales incorrectas' })
+  }
+
+  const token = jwt.sign(
+    { usuario: 'admin' },
+    process.env.JWT_SECRET,
+    { expiresIn: '8h' }
+  )
+
+  res.json({ token })
+})
+
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`)
 })
+
